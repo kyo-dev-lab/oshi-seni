@@ -179,6 +179,7 @@ h3.st{font-size:15px;margin:18px 0 8px}
 .fonts button[aria-pressed=true]{border-color:var(--t);background:var(--ts)}
 .tag,.head h2,.head p,.gl time,.ib,.btn.ghost,.chip.add,.thumb,.zrow{color:var(--tk,var(--t))}
 body.lock{overflow:hidden}
+#edSheet.drop{outline:3px dashed var(--t);outline-offset:-10px}
 .sheet,.modal{overscroll-behavior:contain}
 .hcard:has(.av) small{-webkit-line-clamp:2}
 .toast.act{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:6px 6px 6px 18px}
@@ -235,8 +236,8 @@ body.lock{overflow:hidden}
     <div class="c" style="flex-direction:row;display:flex;align-items:center;justify-content:space-between;min-height:44px"><span>いま推してる</span><button class="sw" id="edNow" role="switch" aria-checked="true" aria-label="いま推してる"></button></div></div>
   <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>
     <div class="c"><span class="lab">画像（推しのアイコン・好きなシーンなど）</span>
-      <div class="imgrow"><div class="thumb" id="edThumb">なし</div><label class="btn ghost" for="edFile">画像を選ぶ</label><input type="file" id="edFile" accept="image/*" hidden><button class="btn ghost" id="edImgDel" hidden>外す</button></div>
-      <span class="lab" id="edImgHint" hidden></span></div></div>
+      <div class="imgrow"><div class="thumb" id="edThumb">なし</div><label class="btn ghost" for="edFile">画像を選ぶ</label><input type="file" id="edFile" accept="image/*" hidden><button class="btn ghost" id="edPaste" hidden>貼り付け</button><button class="btn ghost" id="edImgDel" hidden>外す</button></div>
+      <span class="lab" id="edImgHint" hidden></span><span class="lab" id="edPasteHint" hidden>コピーした画像は Ctrl+V（Macは ⌘V）で貼り付けたり、ここにドラッグしたりしても追加できます</span></div></div>
   <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
     <div class="c"><label for="edMemo">ひとこと・ハマったきっかけ</label><textarea id="edMemo" maxlength="140"></textarea></div></div>
   <button class="del" id="edDel" hidden>この推しを削除</button>
@@ -285,7 +286,7 @@ body.lock{overflow:hidden}
       <button class="chip" data-s="full" aria-pressed="true">年表まるごと</button><button class="chip" data-s="sq" aria-pressed="false">インスタ投稿 1:1</button><button class="chip" data-s="st" aria-pressed="false">ストーリー 9:16</button><button class="chip" data-s="x" aria-pressed="false">X・横長 16:9</button>
     </div>
     <div class="prev" id="prev" style="margin-top:8px"><span class="hint">画像を作成中…</span></div>
-    <div class="link"><button class="btn" id="saveImg" style="flex:1">画像を保存</button><button class="btn ghost" id="shareImg" style="flex:1" hidden>SNSなどに送る</button></div>
+    <div class="link" style="flex-wrap:wrap"><button class="btn" id="saveImg" style="flex:1">画像を保存</button><button class="btn ghost" id="copyImg" style="flex:1" hidden>画像をコピー</button><button class="btn ghost" id="shareImg" style="flex:1" hidden>SNSなどに送る</button></div>
     <p class="hint" id="imgHint">スマホでは画像を長押ししても保存できます。</p>
     <div id="linkArea"></div>
   </div>
@@ -537,6 +538,35 @@ function closeCrop(){$("#cropOv").classList.remove("open");$("#cropModal").class
     edBusy=false;drawThumb();
   };
 }
+/* ---------- clipboard & drop ---------- */
+const canReadClip=!!(navigator.clipboard&&navigator.clipboard.read);
+const canWriteImg=!!(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write);
+const isPC=matchMedia("(hover:hover) and (pointer:fine)").matches;
+$("#edPaste").hidden=!canReadClip;$("#edPasteHint").hidden=!isPC;
+const edOpen=()=>openSh&&openSh.id==="edSheet"&&!$("#cropModal").classList.contains("open");
+function takeImage(f){if(!f||!/^image\//.test(f.type)){toast("画像が見つかりませんでした");return}openCrop(f)}
+document.addEventListener("paste",e=>{
+  if(!edOpen())return;
+  const it=[...(e.clipboardData&&e.clipboardData.items||[])].find(i=>i.kind==="file"&&/^image\//.test(i.type));
+  if(!it)return;e.preventDefault();takeImage(it.getAsFile());
+});
+$("#edPaste").onclick=async()=>{
+  try{const items=await navigator.clipboard.read();
+    for(const it of items){const t=it.types.find(t=>/^image\//.test(t));if(t){const b=await it.getType(t);takeImage(new File([b],"paste."+t.split("/")[1],{type:t}));return}}
+    toast("コピーされた画像がありません")}
+  catch(e){toast(isPC?"Ctrl+V（⌘V）で貼り付けてみてね":"貼り付けできませんでした")}
+};
+{
+  const sh=$("#edSheet");
+  sh.addEventListener("dragover",e=>{if([...(e.dataTransfer&&e.dataTransfer.types||[])].includes("Files")){e.preventDefault();sh.classList.add("drop")}});
+  sh.addEventListener("dragleave",e=>{if(e.target===sh)sh.classList.remove("drop")});
+  sh.addEventListener("drop",e=>{sh.classList.remove("drop");const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(!f)return;e.preventDefault();takeImage(f)});
+}
+async function copyPage(i){
+  const p=pages[i];if(!p)return;
+  try{await navigator.clipboard.write([new ClipboardItem({"image/png":p.blob})]);toast(pages.length>1?`${i+1}枚目をコピーしました`:"画像をコピーしました")}
+  catch(e){toast("コピーできませんでした。保存してから使ってね")}
+}
 $("#edFile").onchange=ev=>{
   const f=ev.target.files&&ev.target.files[0];ev.target.value="";if(!f)return;
   if(!/^image\//.test(f.type)){toast("画像ファイルを選んでね");return}
@@ -713,9 +743,11 @@ async function makeImage(){
   pages=blobs.map(b=>({blob:b,url:URL.createObjectURL(b)}));imgBlob=pages[0].blob;
   pv.innerHTML="";pv.classList.toggle("multi",pages.length>1);
   pages.forEach((p,i)=>{const f=document.createElement("figure");const im=new Image();im.src=p.url;im.alt=`推し遷移の年表画像 ${i+1}枚目`;f.appendChild(im);
-    if(pages.length>1){const fc=document.createElement("figcaption");const sp=document.createElement("span");sp.textContent=`${i+1} / ${pages.length}枚目`;const b=document.createElement("button");b.className="btn ghost";b.textContent="この1枚を保存";b.onclick=()=>savePage(i);fc.append(sp,b);f.appendChild(fc)}
+    if(pages.length>1){const fc=document.createElement("figcaption");const sp=document.createElement("span");sp.textContent=`${i+1} / ${pages.length}枚目`;const b=document.createElement("button");b.className="btn ghost";b.textContent="この1枚を保存";b.onclick=()=>savePage(i);const bx=document.createElement("span");bx.style.cssText="display:flex;gap:6px";
+      if(canWriteImg){const c=document.createElement("button");c.className="btn ghost";c.textContent="コピー";c.onclick=()=>copyPage(i);bx.append(c)}bx.append(b);fc.append(sp,bx);f.appendChild(fc)}
     pv.appendChild(f)});
   $("#saveImg").hidden=pages.length>1;
+  $("#copyImg").hidden=!canWriteImg||pages.length>1;
   $("#shareImg").hidden=!canShareFiles();$("#shareImg").textContent=pages.length>1?`${pages.length}枚まとめて送る`:"SNSなどに送る";
   const sn={full:"",sq:"インスタ投稿（1:1）",st:"ストーリー（9:16）",x:"X・横長（16:9）"}[imgS];
   $("#imgHint").textContent=(filt.size?"絞り込み中のジャンルだけが画像になります。":"")+(sz&&pages.length>1?`${sn}サイズで${pages.length}枚に分けました（1枚${imgO==="v"?sz[2]:sz[3]}件ずつ）。`:"")+"スマホでは画像を長押ししても保存できます。";
@@ -737,6 +769,7 @@ async function savePage(i){
 $$("#imgSeg button").forEach(b=>b.onclick=()=>{imgO=b.dataset.o;$$("#imgSeg button").forEach(x=>x.setAttribute("aria-pressed",x===b));makeImage()});
 $$("#sizeSeg button").forEach(b=>b.onclick=()=>{imgS=b.dataset.s;$$("#sizeSeg button").forEach(x=>x.setAttribute("aria-pressed",x===b));makeImage()});
 $("#saveImg").onclick=()=>savePage(0);
+$("#copyImg").onclick=()=>copyPage(0);
 $("#shareImg").onclick=()=>sharePages(pages.map((_,i)=>i));
 
 /* ---------- link share ---------- */
